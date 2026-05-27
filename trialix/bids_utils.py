@@ -1,6 +1,7 @@
 """BIDS data discovery and validation utilities for Trialix."""
 
 import logging
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -181,7 +182,71 @@ def find_bold_file(preproc_layout, subject, task, session=None,
     return files[0]
 
 
-def find_events_file(raw_layout, subject, task, session=None):
+def _normalize_entity(value):
+    """Normalize entity values for robust string matching."""
+    if value is None:
+        return None
+    return str(value).strip()
+
+
+def _extract_bids_entities_from_name(file_path):
+    """Extract BIDS-like entities from a filename (best effort)."""
+    name = Path(file_path).name
+    entities = {}
+
+    patterns = {
+        'subject': r'(?:^|_)sub-([^_]+)',
+        'task': r'(?:^|_)task-([^_]+)',
+        'session': r'(?:^|_)ses-([^_]+)',
+        'run': r'(?:^|_)run-([^_]+)',
+    }
+
+    for key, pattern in patterns.items():
+        match = re.search(pattern, name)
+        if match:
+            entities[key] = match.group(1)
+
+    return entities
+
+
+def _filter_events_candidates(files, subject, task, session=None, run=None,
+                              allow_global_subject=True):
+    """Filter candidate event files by required BIDS entities."""
+    subject = _normalize_entity(subject)
+    task = _normalize_entity(task)
+    session = _normalize_entity(session)
+    run = _normalize_entity(run)
+
+    filtered = []
+    for fpath in files:
+        entities = _extract_bids_entities_from_name(fpath)
+
+        if _normalize_entity(entities.get('task')) != task:
+            continue
+
+        # Subject can be specific (sub-XX...) or optionally global.
+        sub_entity = _normalize_entity(entities.get('subject'))
+        if sub_entity is None:
+            if not allow_global_subject:
+                continue
+        elif sub_entity != subject:
+            continue
+
+        # If session/run are present in filename, they must match.
+        ses_entity = _normalize_entity(entities.get('session'))
+        if ses_entity is not None and ses_entity != session:
+            continue
+
+        run_entity = _normalize_entity(entities.get('run'))
+        if run_entity is not None and run_entity != run:
+            continue
+
+        filtered.append(str(fpath))
+
+    return sorted(filtered)
+
+
+def find_events_file(raw_layout, subject, task, session=None, run=None):
     """
     Find the events TSV file from rawdata.
 
@@ -195,60 +260,134 @@ def find_events_file(raw_layout, subject, task, session=None):
         Task label.
     session : str or None
         Session label.
+    run : str or int or None
+        Run label.
 
     Returns
     -------
     events_path : str
         Path to the events TSV file.
     """
-    # First try subject-specific events file (sub-XX/func/*_events.tsv)
-    filters = dict(
-        subject=subject,
-        task=task,
-        suffix='events',
-        extension='.tsv',
-        return_type='file',
-    )
-    if session:
-        filters['session'] = session
+    files = []
 
-    files = raw_layout.get(**filters)
+    # Preferred query path when available in pybids.
+    if hasattr(raw_layout, 'get_events'):
+        try:
+            files = raw_layout.get_events(
+                subject=subject,
+                task=task,
+                session=session,
+                run=run,
+                return_type='file',
+            )
+        except TypeError:
+            # Some pybids versions expose get_events with a narrower signature.
+            files = raw_layout.get_events(return_type='file')
 
-    # Fallback: dataset-level events file (task-TASK_events.tsv at root)
+    # Fallback query path for compatibility across pybids versions.
     if not files:
-        logger.debug(
-            f"No subject-specific events file for sub-{subject}, "
-            f"trying dataset-level events file."
-        )
-        root_filters = dict(
+        filters = dict(
             task=task,
             suffix='events',
             extension='.tsv',
             return_type='file',
         )
         if session:
-            root_filters['session'] = session
-        all_events = raw_layout.get(**root_filters)
-        # Keep only files without a subject entity (dataset-level)
-        files = [
-            f for f in all_events
-            if 'sub-' not in Path(f).name
-        ]
+            filters['session'] = session
+        files = raw_layout.get(**filters)
 
-    if not files:
+    matched = _filter_events_candidates(
+        files,
+        subject=subject,
+        task=task,
+        session=session,
+        run=run,
+        allow_global_subject=False,
+    )
+
+    # If no participant-specific file is found, allow global task events.
+    if not matched:
+        logger.debug(
+            f"No participant-specific events for sub-{subject}, "
+            f"trying global task-level events."
+        )
+        global_candidates = []
+        for fpath in files:
+            entities = _extract_bids_entities_from_name(fpath)
+            if 'subject' in entities:
+                continue
+            if _normalize_entity(entities.get('task')) != _normalize_entity(task):
+                continue
+            ses_entity = _normalize_entity(entities.get('session'))
+            if ses_entity is not None and ses_entity != _normalize_entity(session):
+                continue
+            run_entity = _normalize_entity(entities.get('run'))
+            if run_entity is not None and run_entity != _normalize_entity(run):
+                continue
+            global_candidates.append(str(fpath))
+        matched = sorted(global_candidates)
+
+    if not matched:
         ses_str = f" ses-{session}" if session else ""
+        run_str = f" run-{run}" if run is not None else ""
         raise FileNotFoundError(
-            f"No events file found for sub-{subject}{ses_str} task-{task} "
-            f"in rawdata (checked both subject-level and dataset-level)."
+            f"No events file found for sub-{subject}{ses_str}{run_str} "
+            f"task-{task} in rawdata."
         )
 
-    if len(files) > 1:
-        logger.warning(
-            f"Multiple events files for sub-{subject}, using: {files[0]}"
+    if len(matched) > 1:
+        ses_str = f" ses-{session}" if session else ""
+        run_str = f" run-{run}" if run is not None else ""
+        raise ValueError(
+            f"Multiple events files matched for sub-{subject}{ses_str}{run_str} "
+            f"task-{task}: {matched}. Refine your dataset to keep a unique match."
         )
 
-    logger.debug(f"Events file: {files[0]}")
-    return files[0]
+    logger.debug(f"Events file: {matched[0]}")
+    return matched[0]
+
+
+def find_events_file_in_dir(events_dir, subject, task, session=None, run=None):
+    """
+    Recursively search an events directory and match by BIDS entities.
+
+    This is used when INPUT_DIR is preprocessed data and --events-file is not
+    provided. The directory does not need to be a full BIDS dataset.
+    """
+    events_dir = Path(events_dir)
+    if not events_dir.is_dir():
+        raise ValueError(f"Events directory does not exist: {events_dir}")
+
+    candidates = [
+        str(p) for p in events_dir.rglob("*_events.tsv") if p.is_file()
+    ]
+
+    matched = _filter_events_candidates(
+        candidates,
+        subject=subject,
+        task=task,
+        session=session,
+        run=run,
+        allow_global_subject=False,
+    )
+
+    ses_str = f" ses-{session}" if session else ""
+    run_str = f" run-{run}" if run is not None else ""
+
+    if not matched:
+        raise FileNotFoundError(
+            f"No events file found in {events_dir} for "
+            f"sub-{subject}{ses_str}{run_str} task-{task}."
+        )
+
+    if len(matched) > 1:
+        raise ValueError(
+            f"Multiple events files matched in {events_dir} for "
+            f"sub-{subject}{ses_str}{run_str} task-{task}: {matched}."
+        )
+
+    logger.debug(f"Events file from events-dir: {matched[0]}")
+    return matched[0]
 
 
 def find_confounds_file(preproc_layout, subject, task, session=None):

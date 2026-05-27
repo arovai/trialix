@@ -89,6 +89,10 @@ def create_parser() -> argparse.ArgumentParser:
 
       {Colors.YELLOW}# INPUT_DIR is the preprocessed data folder{Colors.END}
       trialix /data/derivatives/fmriprep /data/output participant \\
+          --task motor --events-dir /data/rawdata
+
+      {Colors.YELLOW}# Use one global events file for all participants{Colors.END}
+      trialix /data/derivatives/fmriprep /data/output participant \
           --task motor --events-file /data/rawdata/task-motor_events.tsv
 
     {Colors.BOLD}Full Analysis:{Colors.END}
@@ -121,7 +125,7 @@ def create_parser() -> argparse.ArgumentParser:
                Events files are read from the rawdata folder
 
       {Colors.CYAN}Mode 2:{Colors.END}  INPUT_DIR = Preprocessed data folder (e.g., fMRIPrep output)
-               Requires --events-file PATH
+               Requires --events-file PATH or --events-dir PATH
                Preprocessed data is read directly from INPUT_DIR
 
     {Colors.BOLD}{Colors.GREEN}═══════════════════════════════════════════════════════════════════════════════{Colors.END}
@@ -165,7 +169,7 @@ def create_parser() -> argparse.ArgumentParser:
         type=Path,
         metavar="INPUT_DIR",
         help="Path to BIDS rawdata folder (with --derivatives) or to "
-             "preprocessed data folder (with --events-file).",
+               "preprocessed data folder (with --events-file/--events-dir).",
     )
 
     required.add_argument(
@@ -284,8 +288,18 @@ def create_parser() -> argparse.ArgumentParser:
         type=Path,
         metavar="PATH",
         dest="events_file",
-        help="Path to events TSV file. REQUIRED if INPUT_DIR is not "
-             "the rawdata folder (i.e., when --derivatives is not used).",
+        help="Path to a single global events TSV file. If omitted and "
+             "INPUT_DIR is preprocessed data, --events-dir is required.",
+    )
+
+    modeling.add_argument(
+        "--events-dir",
+        type=Path,
+        metavar="PATH",
+        dest="events_dir",
+        help="Directory to recursively search for participant-specific "
+             "*_events.tsv files when INPUT_DIR is preprocessed data and "
+             "--events-file is not provided.",
     )
 
     modeling.add_argument(

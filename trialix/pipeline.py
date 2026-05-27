@@ -8,6 +8,7 @@ from trialix.bids_utils import (
     find_bold_file,
     find_confounds_file,
     find_events_file,
+    find_events_file_in_dir,
     get_repetition_time,
     get_sessions,
     get_subjects,
@@ -291,6 +292,11 @@ def _process_subject_session(config, raw_layout, preproc_layout, is_raw,
     # ------------------------------------------------------------------
     t_r = get_repetition_time(preproc_layout, bold_file)
 
+    # Parse BIDS entities from selected BOLD file to resolve run-specific
+    # events files when available.
+    bold_entities = preproc_layout.parse_file_entities(bold_file)
+    run = bold_entities.get('run')
+
     # ------------------------------------------------------------------
     # C. Find and load events
     # ------------------------------------------------------------------
@@ -300,12 +306,20 @@ def _process_subject_session(config, raw_layout, preproc_layout, is_raw,
         logger.info(f"  Events (user-provided): {events_file}")
     elif is_raw and raw_layout:
         # Mode 1: find events in rawdata
-        events_file = find_events_file(raw_layout, subject, task, session)
+        events_file = find_events_file(
+            raw_layout, subject, task, session=session, run=run
+        )
         logger.info(f"  Events (rawdata): {events_file}")
+    elif config.get('events_dir'):
+        events_file = find_events_file_in_dir(
+            config['events_dir'], subject, task, session=session, run=run
+        )
+        logger.info(f"  Events (events-dir): {events_file}")
     else:
         raise FileNotFoundError(
             f"No events file for sub-{subject}{ses_str}. "
-            f"Use --events-file or provide rawdata with --derivatives."
+            f"Use --events-file, --events-dir, or provide rawdata with "
+            f"--derivatives."
         )
 
     events_df = load_events(events_file, conditions=config.get('conditions'))

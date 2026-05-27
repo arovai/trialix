@@ -108,6 +108,7 @@ def merge_config(args, config=None):
     merged['analysis_level'] = args.analysis_level
     merged['debug'] = args.debug
     merged['events_file'] = getattr(args, 'events_file', None)
+    merged['events_dir'] = getattr(args, 'events_dir', None)
     merged['confounds_file'] = getattr(args, 'confounds_file', None)
     merged['derivatives'] = args.derivatives  # raw list from argparse
 
@@ -144,13 +145,16 @@ def validate_config(config):
     derivatives_dict = parse_derivatives_arg(config.get('derivatives'))
     has_preproc = 'preproc' in derivatives_dict
     has_events_file = config.get('events_file') is not None
+    has_events_dir = config.get('events_dir') is not None
 
-    # Must have either derivatives or events-file
-    if not has_preproc and not has_events_file:
+    # Input mode rules:
+    # - Rawdata mode: requires --derivatives preproc=PATH.
+    # - Preprocessed mode: requires --events-file OR --events-dir.
+    if not has_preproc and not has_events_file and not has_events_dir:
         raise ValueError(
             "Either --derivatives preproc=PATH must be provided (when INPUT_DIR "
-            "is rawdata), or --events-file must be provided (when INPUT_DIR is "
-            "preprocessed data)."
+            "is rawdata), or --events-file/--events-dir must be provided "
+            "(when INPUT_DIR is preprocessed data)."
         )
 
     # Validate input_dir exists
@@ -167,6 +171,11 @@ def validate_config(config):
     events_file = config.get('events_file')
     if events_file and not events_file.is_file():
         raise ValueError(f"Events file does not exist: {events_file}")
+
+    # Validate events-dir exists if provided
+    events_dir = config.get('events_dir')
+    if events_dir and not events_dir.is_dir():
+        raise ValueError(f"Events directory does not exist: {events_dir}")
 
     # Validate confounds-file exists if provided
     confounds_file = config.get('confounds_file')

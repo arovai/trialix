@@ -53,6 +53,14 @@ trialix /data/rawdata /data/output participant \
     --derivatives preproc=/data/derivatives/fmriprep
 ```
 
+### Preprocessed input with participant-specific events
+
+```bash
+trialix /data/derivatives/fmriprep /data/output participant \
+  --task motor \
+  --events-dir /data/rawdata
+```
+
 ### Full analysis with contrasts and thresholding
 
 ```bash
@@ -87,7 +95,7 @@ trialix INPUT_DIR OUTPUT_DIR participant [options]
 
 | Argument | Description |
 |---|---|
-| `INPUT_DIR` | Path to BIDS rawdata folder (with `--derivatives`) or to preprocessed data folder (with `--events-file`). |
+| `INPUT_DIR` | Path to BIDS rawdata folder (with `--derivatives`) or to preprocessed data folder (with `--events-file`/`--events-dir`). |
 | `OUTPUT_DIR` | Path to output directory for analysis derivatives. |
 | `participant` | Analysis level (currently only `participant` is supported). |
 
@@ -100,7 +108,8 @@ trialix INPUT_DIR OUTPUT_DIR participant [options]
 
 **Mode 2: Preprocessed data directly**
 - `INPUT_DIR` points to the preprocessed data folder (e.g., fMRIPrep output)
-- Use `--events-file PATH` to provide the events TSV file
+- Use `--events-file PATH` for one global events TSV file, or
+- Use `--events-dir PATH` to recursively find participant-specific `*_events.tsv`
 
 ### General Options
 
@@ -130,7 +139,8 @@ trialix INPUT_DIR OUTPUT_DIR participant [options]
 
 | Option | Default | Description |
 |---|---|---|
-| `--events-file PATH` | auto | Path to events TSV file. Required in Mode 2. |
+| `--events-file PATH` | auto | Path to a single global events TSV file (Mode 2). |
+| `--events-dir PATH` | auto | Recursive search root for participant-specific `*_events.tsv` (Mode 2 when `--events-file` is omitted). |
 | `--confounds-file PATH` | auto | Custom confounds TSV file. Default: fMRIPrep output. |
 | `--conditions COND [COND ...]` | all | Trial types to include from events.tsv. |
 | `--regressors REG [REG ...]` | none | Confound regressors (column names from confounds file). |
@@ -202,16 +212,19 @@ smoothing_fwhm: 6
 1. **Validate inputs** — Check CLI arguments and config file; verify data paths.
 2. **Discover data** — Use pybids to find subjects, tasks, sessions, BOLD files, events, and confounds.
 3. **Loop over subjects and sessions:**
-   - Load preprocessed BOLD data
-   - Load events TSV (filter by requested conditions)
-   - Load confounds TSV (select requested regressors)
-   - Extract TR from BIDS metadata or NIfTI header
-   - Build `FirstLevelModel` with specified parameters
-   - Fit the GLM
-   - Compute contrasts (z-score, t-stat, p-value, effect size, effect variance)
-   - Apply statistical thresholding
-   - Save BIDS-compliant NIfTI outputs
-   - Generate and save HTML report
+  - Load preprocessed BOLD data
+  - Resolve events TSV
+  - Rawdata mode: pybids lookup in rawdata (participant-specific first, then global)
+  - Preprocessed mode: `--events-file` (global) or recursive `--events-dir` lookup by BIDS entities
+  - Load events TSV (filter by requested conditions)
+  - Load confounds TSV (select requested regressors)
+  - Extract TR from BIDS metadata or NIfTI header
+  - Build `FirstLevelModel` with specified parameters
+  - Fit the GLM
+  - Compute contrasts (z-score, t-stat, p-value, effect size, effect variance)
+  - Apply statistical thresholding
+  - Save BIDS-compliant NIfTI outputs
+  - Generate and save HTML report
 4. **Write `dataset_description.json`** in output directory.
 
 ---
