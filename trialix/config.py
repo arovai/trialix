@@ -7,6 +7,7 @@ import yaml
 
 # Keys that can appear in both CLI and config (CLI overrides config)
 SHARED_KEYS = {
+    'censor_trials',
     'participant_label',
     'task',
     'session',
@@ -134,6 +135,12 @@ def validate_config(config):
         If required values are missing or invalid.
     """
     from trialix.cli import parse_derivatives_arg
+
+    censor_trials = config.get('censor_trials')
+    if censor_trials is not None and (
+        not isinstance(censor_trials, str) or not censor_trials.strip()
+    ):
+        raise ValueError("censor_trials must be a non-empty trial_type string.")
 
     # Task is required
     if not config.get('task'):

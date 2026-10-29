@@ -61,7 +61,7 @@ def build_first_level_model(t_r, subject_label=None, model_params=None,
     return flm
 
 
-def fit_model(flm, bold_img, events_df, confounds_df=None):
+def fit_model(flm, bold_img, events_df, confounds_df=None, design_matrix=None):
     """
     Fit the FirstLevelModel.
 
@@ -75,6 +75,9 @@ def fit_model(flm, bold_img, events_df, confounds_df=None):
         Events with onset, duration, trial_type columns.
     confounds_df : pd.DataFrame or None
         Confound regressors.
+    design_matrix : pd.DataFrame or None
+        Complete design for a physically cropped image. When supplied, events
+        and confounds are already incorporated and are not passed to fit.
 
     Returns
     -------
@@ -82,7 +85,10 @@ def fit_model(flm, bold_img, events_df, confounds_df=None):
         Fitted model.
     """
     logger.info("Fitting FirstLevelModel...")
-    flm.fit(bold_img, events=events_df, confounds=confounds_df)
+    if design_matrix is None:
+        flm.fit(bold_img, events=events_df, confounds=confounds_df)
+    else:
+        flm.fit(bold_img, design_matrices=design_matrix)
     logger.info("Model fitting complete.")
 
     # Log design matrix columns

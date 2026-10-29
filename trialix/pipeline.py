@@ -18,6 +18,7 @@ from trialix.bids_utils import (
     validate_task,
 )
 from trialix.cli import Colors, parse_derivatives_arg
+from trialix.censoring import prepare_censored_run
 from trialix.config import load_config, merge_config, validate_config
 from trialix.logging_setup import setup_logging
 from trialix.model import (
@@ -123,6 +124,7 @@ def run_pipeline(args):
     log.info(f"  Session:        {config.get('session', 'all')}")
     log.info(f"  Space:          {config.get('space', 'MNI152NLin2009cAsym')}")
     log.info(f"  Conditions:     {config.get('conditions', 'all')}")
+    log.info(f"  Censor trials:  {config.get('censor_trials', 'disabled')}")
     log.info(f"  Regressors:     {config.get('regressors', 'none')}")
     log.info(f"  Contrasts:      {config.get('contrasts', 'auto')}")
     log.info(f"  Alpha:          {config.get('alpha')}")
@@ -327,6 +329,9 @@ def _process_subject_session(config, raw_layout, preproc_layout, is_raw,
         )
 
     events_df = load_events(events_file, conditions=config.get('conditions'))
+    selection_events = (
+        load_events(events_file) if config.get('censor_trials') else None
+    )
 
     # ------------------------------------------------------------------
     # D. Find and load confounds
@@ -339,7 +344,7 @@ def _process_subject_session(config, raw_layout, preproc_layout, is_raw,
     elif config.get('regressors'):
         # Need confounds for regressors; find from fMRIPrep
         confounds_file = find_confounds_file(
-            preproc_layout, subject, task, session
+            preproc_layout, subject, task, session, run=run
         )
         if confounds_file:
             logger.info(f"  Confounds (fMRIPrep): {confounds_file}")
@@ -365,7 +370,22 @@ def _process_subject_session(config, raw_layout, preproc_layout, is_raw,
         debug=config['debug'],
     )
 
-    flm = fit_model(flm, bold_file, events_df, confounds_df)
+    design_matrix = None
+    censoring_metadata = {'Enabled': False}
+    fit_img = bold_file
+    if config.get('censor_trials'):
+        fit_img, design_matrix, censoring_metadata = prepare_censored_run(
+            bold_file, events_df, confounds_df, selection_events,
+            config['censor_trials'], flm, events_file,
+        )
+        logger.info(
+            "Censoring '%s': retained %s/%s volumes; %s drift terms",
+            config['censor_trials'], censoring_metadata['RetainedVolumeCount'],
+            censoring_metadata['OriginalVolumeCount'],
+            len(censoring_metadata['DriftColumns']),
+        )
+    flm = fit_model(flm, fit_img, events_df, confounds_df, design_matrix)
+    analysis_metadata = {'TemporalCensoring': censoring_metadata}
 
     # ------------------------------------------------------------------
     # F. Determine contrasts
@@ -392,7 +412,8 @@ def _process_subject_session(config, raw_layout, preproc_layout, is_raw,
 
         # Save unthresholded maps
         save_contrast_maps(
-            outputs, output_dir, subject, session, task, space, contrast_name
+            outputs, output_dir, subject, session, task, space, contrast_name,
+            metadata=analysis_metadata,
         )
 
         # Apply thresholding and save thresholded maps
@@ -405,7 +426,7 @@ def _process_subject_session(config, raw_layout, preproc_layout, is_raw,
                     )
                     save_thresholded_map(
                         thresholded, output_dir, subject, session, task,
-                        space, contrast_name, alpha, hc
+                        space, contrast_name, alpha, hc, metadata=analysis_metadata,
                     )
                 except Exception as e:
                     logger.warning(

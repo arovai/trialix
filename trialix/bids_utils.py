@@ -401,7 +401,7 @@ def find_events_file_in_dir(events_dir, subject, task, session=None, run=None):
     return matched[0]
 
 
-def find_confounds_file(preproc_layout, subject, task, session=None):
+def find_confounds_file(preproc_layout, subject, task, session=None, run=None):
     """
     Find the confounds timeseries TSV file from fMRIPrep output.
 
@@ -433,6 +433,8 @@ def find_confounds_file(preproc_layout, subject, task, session=None):
     )
     if session:
         base_filters['session'] = session
+    if run is not None:
+        base_filters['run'] = run
 
     # Try 'timeseries' suffix (newer fMRIPrep)
     filters = {**base_filters, 'suffix': 'timeseries'}

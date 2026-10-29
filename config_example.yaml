@@ -17,6 +17,10 @@ task: motor
 space: MNI152NLin2009cAsym
 
 # ─── Modeling ─────────────────────────────────────────────────────────────────
+# Keep volumes inside events of this trial_type (onset <= time < onset + duration).
+# Optional; CLI --censor-trials overrides this value. null disables censoring.
+# censor_trials: focus_task
+
 # Trial types to include in the model (from events.tsv trial_type column).
 # Default: all trial types.
 # conditions:

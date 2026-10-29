@@ -83,7 +83,7 @@ def build_output_dir(output_dir, subject, session=None):
 
 
 def save_contrast_maps(contrast_outputs, output_dir, subject, session, task,
-                       space, contrast_name):
+                       space, contrast_name, metadata=None):
     """
     Save all output maps for a single contrast.
 
@@ -121,6 +121,7 @@ def save_contrast_maps(contrast_outputs, output_dir, subject, session, task,
         fpath = out_dir / fname
 
         nib.save(img, str(fpath))
+        _write_map_metadata(fpath, metadata, Contrast=contrast_name)
         logger.info(f"  Saved: {fpath.name}")
         saved.append(fpath)
 
@@ -128,7 +129,7 @@ def save_contrast_maps(contrast_outputs, output_dir, subject, session, task,
 
 
 def save_thresholded_map(thresholded_img, output_dir, subject, session, task,
-                         space, contrast_name, alpha, height_control):
+                         space, contrast_name, alpha, height_control, metadata=None):
     """
     Save a thresholded z-score map with threshold info in the filename.
 
@@ -165,8 +166,19 @@ def save_thresholded_map(thresholded_img, output_dir, subject, session, task,
     fpath = out_dir / fname
 
     nib.save(thresholded_img, str(fpath))
+    _write_map_metadata(fpath, metadata, Contrast=contrast_name,
+                        Alpha=alpha, HeightControl=height_control)
     logger.info(f"  Saved thresholded: {fpath.name}")
     return fpath
+
+
+def _write_map_metadata(fpath, metadata, **details):
+    """Write provenance alongside each unthresholded or thresholded map."""
+    if metadata is None:
+        return
+    sidecar = fpath.with_name(fpath.name.removesuffix('.nii.gz') + '.json')
+    with sidecar.open('w') as stream:
+        json.dump({**metadata, **details}, stream, indent=2, allow_nan=False)
 
 
 def save_report(report, output_dir, subject, session, task, space):
