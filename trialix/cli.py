@@ -314,7 +314,7 @@ def create_parser() -> argparse.ArgumentParser:
     modeling.add_argument(
         "--censor-trials",
         metavar="TRIAL_TYPE",
-        help="Keep volumes whose acquisition times fall in events of this "
+        help="Remove volumes whose acquisition times fall in events of this "
              "trial_type: onset <= time < onset + duration. Rebuild drifts "
              "for the retained series. CLI overrides config censor_trials.",
     )

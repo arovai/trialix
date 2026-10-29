@@ -143,28 +143,31 @@ trialix INPUT_DIR OUTPUT_DIR participant [options]
 | `--events-dir PATH` | auto | Recursive search root for participant-specific `*_events.tsv` (Mode 2 when `--events-file` is omitted). |
 | `--confounds-file PATH` | auto | Custom confounds TSV file. Default: fMRIPrep output. |
 | `--conditions COND [COND ...]` | all | Trial types to include from events.tsv. |
-| `--censor-trials TRIAL_TYPE` | disabled | Keep volumes acquired within matching events: `[onset, onset + duration)`. Also configurable as `censor_trials`. |
+| `--censor-trials TRIAL_TYPE` | disabled | Remove volumes acquired within matching events: `[onset, onset + duration)`. Also configurable as `censor_trials`. |
 | `--regressors REG [REG ...]` | none | Confound regressors (column names from confounds file). |
 | `--contrasts CON [CON ...]` | auto | Contrast definitions (e.g., `"cond1 - cond2"`). |
 
 ### Temporal censoring
 
-Use `--censor-trials focus_task` to fit only volumes whose acquisition times
-fall inside `focus_task` events in the resolved events TSV. The same discovery
+**Behavior change:** `--censor-trials` removes matching intervals. The initial
+implementation kept them; rerun affected analyses with this corrected version.
+
+Use `--censor-trials consolidatedSleep` to remove volumes whose acquisition times
+fall inside `consolidatedSleep` events in the resolved events TSV. The same discovery
 rules apply, including participant-, session-, and run-specific events files.
 The censoring windows are read before filtering events with `--conditions`.
 
 ```bash
 trialix /data/derivatives/fmriprep /data/output participant \
     --task motor --events-dir /data/rawdata \
-    --censor-trials focus_task --conditions left_hand right_hand \
+    --censor-trials consolidatedSleep --conditions left_hand right_hand \
     --regressors trans_x trans_y trans_z
 ```
 
-For an event with onset `10` and duration `120`, the retained interval is
+For an event with onset `10` and duration `120`, the removed interval is
 `10 <= time < 130` seconds. Volume `i` is sampled at `i * TR` (zero-based).
-All matching windows are combined; overlapping windows never duplicate volumes.
-Windows extending beyond the scan retain only existing volumes. Missing trial
+All matching windows are removed; overlapping windows never remove a volume twice.
+Windows extending beyond the scan affect only existing volumes. Missing trial
 types, invalid or nonpositive durations, nonfinite timings, fewer than two
 retained volumes, and confound/BOLD length mismatches cause that analysis to fail
 with an explanatory log message.
@@ -180,15 +183,17 @@ fitting; gaps are treated as adjacent samples, with no extra HRF padding.
 Any precomputed confound columns (including fMRIPrep cosine columns) are selected
 as supplied, rather than recomputed; use `regressors` to choose them deliberately.
 
-`--conditions` still controls modeled trial types independently. The censoring
-trial type remains a modeled condition unless excluded with `--conditions`.
-In YAML, use `censor_trials: focus_task` (or `null` to disable it); a supplied
+`--conditions` controls modeled trial types independently. The censoring trial
+type is automatically excluded from the model, even if listed in `--conditions`.
+In YAML, use `censor_trials: consolidatedSleep` (or `null` to disable it); a supplied
 CLI `--censor-trials` value takes precedence.
 
 Each output statistical map, including thresholded maps, has a JSON sidecar
 with `TemporalCensoring` provenance: enabled status, trial type, source events
 file, intervals, TR, original/retained/removed counts, zero-based retained volume
-indices, task-regressor timing strategy, and drift settings/columns. Without
+indices and original acquisition times, removed indices, the explicit removal
+operation, excluded model trial type, task-regressor timing strategy, and drift
+settings/columns. Without
 censoring the sidecar records `Enabled: false`.
 
 ### Statistical Thresholding

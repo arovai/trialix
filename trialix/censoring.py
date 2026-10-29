@@ -8,7 +8,7 @@ from nilearn.image import index_img, load_img
 
 def prepare_censored_run(bold_img, events, confounds, selection_events,
                          trial_type, flm, events_file):
-    """Crop BOLD and regressors identically, rebuilding drifts after selection.
+    """Remove matching intervals from BOLD and regressors, then rebuild drifts.
 
     Task convolution uses the original regular acquisition grid. Drift generation
     uses a new regular grid of retained volumes, concatenating disjoint windows.
@@ -37,18 +37,22 @@ def prepare_censored_run(bold_img, events, confounds, selection_events,
     if not np.isfinite(values).all() or (values[:, 1] <= 0).any():
         raise ValueError("Censor onsets must be finite and durations finite and positive.")
     times = np.arange(n_scans) * t_r
-    keep = np.zeros(n_scans, dtype=bool)
+    remove = np.zeros(n_scans, dtype=bool)
     intervals = []
     for onset, duration in values:
         end = onset + duration
         if not np.isfinite(end):
             raise ValueError("Censor interval end must be finite.")
-        keep |= (times >= onset) & (times < end)
+        remove |= (times >= onset) & (times < end)
         intervals.append({'Onset': float(onset), 'Duration': float(duration),
                           'End': float(end)})
-    indices = np.flatnonzero(keep)
+    indices = np.flatnonzero(~remove)
     if len(indices) < 2:
         raise ValueError("Trial censoring must retain at least two BOLD volumes.")
+
+    events = events.loc[events['trial_type'] != trial_type].copy()
+    if events.empty:
+        raise ValueError("No modeled events remain after excluding the censor trial_type.")
 
     # Do not compress event timing before HRF convolution: preceding events can
     # still contribute to retained volumes through their haemodynamic response.
@@ -68,6 +72,7 @@ def prepare_censored_run(bold_img, events, confounds, selection_events,
     )
     metadata = {
         'Enabled': True,
+        'Operation': 'remove_matching_intervals',
         'TrialType': trial_type,
         'EventsFile': str(events_file),
         'IntervalConvention': 'onset <= volume_index * RepetitionTime < onset + duration',
@@ -77,6 +82,9 @@ def prepare_censored_run(bold_img, events, confounds, selection_events,
         'RetainedVolumeCount': int(len(indices)),
         'RemovedVolumeCount': int(n_scans - len(indices)),
         'RetainedVolumeIndices': indices.tolist(),
+        'RemovedVolumeIndices': np.flatnonzero(remove).tolist(),
+        'RetainedAcquisitionTimes': times[indices].tolist(),
+        'ExcludedModelTrialTypes': [trial_type],
         'VolumeIndexBase': 0,
         'TaskRegressors': 'HRF convolution on original timeline, then volume selection',
         'DriftTimeline': 'Retained volumes concatenated in acquisition order at original TR',

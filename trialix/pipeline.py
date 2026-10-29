@@ -379,7 +379,7 @@ def _process_subject_session(config, raw_layout, preproc_layout, is_raw,
             config['censor_trials'], flm, events_file,
         )
         logger.info(
-            "Censoring '%s': retained %s/%s volumes; %s drift terms",
+            "Removing intervals of '%s': retained %s/%s volumes; %s drift terms",
             config['censor_trials'], censoring_metadata['RetainedVolumeCount'],
             censoring_metadata['OriginalVolumeCount'],
             len(censoring_metadata['DriftColumns']),
