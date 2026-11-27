@@ -12,7 +12,7 @@
 
 Trialix is a BIDS-application CLI tool that performs participant-level (first-level) fMRI analysis for trial-based experimental conditions — block designs, event-related designs, or mixed designs.
 
-At its core, Trialix is a BIDS wrapper for [nilearn](https://nilearn.github.io/). All core statistical routines — GLM fitting, contrast computation, and statistical thresholding — rely on nilearn's well-proven implementations, in particular [`FirstLevelModel`](https://nilearn.github.io/stable/modules/generated/nilearn.glm.first_level.FirstLevelModel.html). Trialix adds a BIDS-aware layer on top, handling data discovery, confound selection, and BIDS-compliant output generation so that users can run first-level analyses directly from fMRIPrep derivatives with minimal boilerplate.
+At its core, Trialix is a BIDS wrapper for [nilearn](https://nilearn.github.io/). GLM fitting, contrast computation, and the existing FDR/Bonferroni thresholding use Nilearn, in particular [`FirstLevelModel`](https://nilearn.github.io/stable/modules/generated/nilearn.glm.first_level.FirstLevelModel.html). Trialix adds a BIDS-aware layer on top, handling data discovery, confound selection, and BIDS-compliant output generation so that users can run first-level analyses directly from fMRIPrep derivatives with minimal boilerplate. Version **0.2.0** adds optional participant-level height-FWE correction using [pyrft](https://github.com/arovai/pyrft).
 
 > **Note:** Trialix does **not** perform fMRI preprocessing. It expects data preprocessed by [fMRIPrep](https://fmriprep.org/) or a similar tool. Group-level (second-level) analysis is handled by the companion tool **StatCraft**.
 
@@ -31,15 +31,22 @@ source .venv/bin/activate
 
 # Install trialix and its dependencies
 pip install -e .
+
+# Optional: install the pinned pyrft backend for RFT correction
+pip install -e '.[rft]'
 ```
 
 ### Dependencies
 
-- Python ≥ 3.9
+- Python ≥ 3.10
 - [nilearn](https://nilearn.github.io/) ≥ 0.10
 - [pybids](https://bids-standard.github.io/pybids/) ≥ 0.16
 - [nibabel](https://nipy.org/nibabel/) ≥ 4.0
-- numpy, pandas, pyyaml, matplotlib
+- numpy, scipy ≥ 1.9, pandas, pyyaml, matplotlib
+- Optional `[rft]` extra: pyrft 0.2.0 with its NIfTI adapter, pinned to
+  [commit b635329](https://github.com/arovai/pyrft/commit/b63532940f78999850132dcdc1bec9317b98058d).
+  This currently requires Git/network access at installation because pyrft is not
+  yet published on PyPI. Ordinary analyses do not require pyrft.
 
 ---
 
@@ -201,7 +208,77 @@ censoring the sidecar records `Enabled: false`.
 | Option | Default | Description |
 |---|---|---|
 | `--alpha ALPHA [ALPHA ...]` | `0.05` | P-value threshold(s). |
-| `--height-control METHOD [METHOD ...]` | none | Correction method: `fdr`, `bonferroni`, or `none`. |
+| `--height-control METHOD [METHOD ...]` | none | Correction method: `fdr`, `bonferroni`, `rft` (requires `[rft]` extra), or `none`. |
+
+### Participant-level RFT correction
+
+Install the optional backend from the checkout, then request `rft`:
+
+```bash
+python -m pip install -e '.[rft]'
+trialix /data/rawdata /data/output participant \
+    --task motor --derivatives preproc=/data/derivatives/fmriprep \
+    --contrasts "left_hand - right_hand" --height-control rft --alpha 0.05
+```
+
+YAML configuration is equivalent:
+
+```yaml
+alpha: [0.05]
+height_control: [rft]
+```
+
+You can request multiple methods, for example `--height-control rft fdr` with
+`--alpha 0.05 0.05`. Existing element-wise pairing is retained: a missing alpha
+reuses the last value; a missing method means `none`. CLI alpha overrides YAML
+only when explicitly supplied; otherwise YAML is respected before the 0.05 fallback.
+RFT requires `0 < alpha <= 0.1`. It is opt-in; the default correction is unchanged.
+
+For each fitted participant/session run, Trialix:
+
+1. Reconstructs the complete **whitened residual** stack from Nilearn's AR groups
+   in fitted-mask voxel order. It does not use the public residual image, observed
+   Z/T-map smoothness, or the preprocessing kernel as a substitute.
+2. Obtains the residual degrees of freedom and observation count from the fitted
+   model, including any trial censoring. Smoothness is estimated once through pyrft
+   and reused across the run's contrasts and alpha values.
+3. Computes resels from the fitted model's actual search mask and estimated
+   anisotropic FWHM. Derivative estimation uses complete in-mask forward cubes.
+4. Applies two-sided **T-field height FWE** correction: alpha/2 per tail, using
+   fitted residual df. No automatic Bonferroni fallback is used for `rft`.
+5. Saves the original Z scores only where native absolute T exceeds its RFT cutoff.
+   Output naming remains compatible with existing downstream consumers, for example
+   `*_desc-zScoreThreshRftAlpha0p05_statmap.nii.gz`.
+
+FWE is controlled spatially for each contrast; there is no additional correction
+across the collection of requested contrasts.
+
+The integration supports one fitted volumetric run and named one-dimensional
+T contrasts. It does not implement F-field correction, joint multi-run RFT,
+surfaces, or cluster-extent inference. The full residual stack needs additional
+memory while estimating smoothness. Zero residual variance, too few usable scans,
+insufficient derivative stencils, unsupported geometry, inconsistent df or backend
+errors fail the participant analysis; they do not trigger map-only estimation or
+another correction method. An RFT run with any failed participant/session exits
+nonzero after processing the remaining participants.
+
+RFT map sidecars include a `Thresholding` block and an `RFT` block with the actual
+T/Z cutoffs, full/per-tail alpha, fitted df, residual preparation, observation
+count/design rank, mask geometry, FWHM in voxels/mm, resels, backend version and
+any diagnostics. Existing `TemporalCensoring` provenance is preserved.
+
+The HTML report uses the **first requested alpha/method pair**. When that method
+is RFT, Trialix supplies its equivalent numerical Z cutoff to Nilearn and labels
+the report as RFT height-FWE correction. A companion `*_report.json` records the
+RFT provenance. Cluster sizes in this report are descriptive; no cluster-FWE
+probabilities are claimed. When another method comes first, its report behavior
+is unchanged; the RFT NIfTI files and sidecars are still saved.
+
+Numerical pyrft–SPM comparisons are maintained separately in
+[pyrft-spm-validation](https://github.com/arovai/pyrft-spm-validation).
+Scientific calibration remains deferred. Per `INSTRUCTIONS.md`, this Trialix
+integration has only received syntax/static source review; runtime analyses and
+integration tests have not been executed.
 
 ### Config-File-Only Parameters
 
@@ -272,7 +349,7 @@ smoothing_fwhm: 6
   - Build `FirstLevelModel` with specified parameters
   - Fit the GLM
   - Compute contrasts (z-score, t-stat, p-value, effect size, effect variance)
-  - Apply statistical thresholding
+  - Apply statistical thresholding (optionally residual-based pyrft RFT height FWE)
   - Save BIDS-compliant NIfTI outputs
   - Generate and save HTML report
 4. **Write `dataset_description.json`** in output directory.

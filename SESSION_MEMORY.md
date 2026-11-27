@@ -25,11 +25,12 @@
 INSTRUCTIONS.md explicitly prohibits running the tool or writing/running unit
 or integration tests and allows syntax checks only. No analysis, CLI invocation,
 installation/build check, or test suite has been run for this change. Python AST
-and TOML syntax parsing and whitespace checks have passed for the implementation.
+and TOML/YAML syntax parsing and whitespace checks have passed for the implementation.
 
-## Remaining work
+## Documentation and remaining runtime validation
 
-- Complete user-facing usage/release documentation.
+- User-facing RFT installation, configuration, output/provenance and release
+  documentation is complete in README.md, config_example.yaml and CHANGELOG.md.
 - User-side runtime checks should cover ordinary and censored AR(1) fits, YAML
   overrides, multiple contrasts/alphas, fixed-cutoff HTML reports, missing extra,
   degenerate residuals and RFT error propagation. These have NOT been executed.

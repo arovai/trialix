@@ -144,7 +144,7 @@ def threshold_rft_contrast(outputs, context, alpha):
         'SourceStatistic': 'T', 'OutputStatistic': 'Z',
         'TThreshold': float(result.threshold), 'ZThreshold': z_threshold,
         'Selection': 'retain original Z scores where native abs(T) >= TThreshold',
-        'Scope': 'two-sided peak/height FWE within the fitted model mask',
+        'Scope': 'two-sided peak/height FWE per contrast within the fitted model mask',
     })
     logger.info("RFT alpha=%s: |T| >= %.6f (df=%s), equivalent |Z| >= %.6f; resels=%s",
                 alpha, result.threshold, context.residual_df, z_threshold, metadata['resels'])

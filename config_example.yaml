@@ -48,10 +48,16 @@ space: MNI152NLin2009cAsym
 alpha:
   - 0.05
 
-# Multiple comparison correction: 'fdr', 'bonferroni', or 'none'
+# Multiple comparison correction: 'fdr', 'bonferroni', 'rft', or 'none'
 # Paired element-wise with alpha values.
 # height_control:
 #   - fdr
+# For two-sided height FWE using the fitted model's whitened residuals:
+#   python -m pip install -e '.[rft]'
+# height_control:
+#   - rft
+# RFT requires alpha <= 0.1 (typically 0.05), uses native T thresholds and
+# saves surviving Z scores. It does not provide cluster-extent correction.
 
 # ─── FirstLevelModel Parameters (config-file only) ───────────────────────────
 # These are passed directly to nilearn's FirstLevelModel constructor.
