@@ -113,6 +113,11 @@ def merge_config(args, config=None):
     merged['confounds_file'] = getattr(args, 'confounds_file', None)
     merged['derivatives'] = args.derivatives  # raw list from argparse
 
+    if isinstance(merged.get('alpha'), (int, float)):
+        merged['alpha'] = [merged['alpha']]
+    if isinstance(merged.get('height_control'), str):
+        merged['height_control'] = [merged['height_control']]
+
     # Ensure alpha has a default
     if merged.get('alpha') is None:
         merged['alpha'] = [0.05]
@@ -191,19 +196,29 @@ def validate_config(config):
 
     # Validate alpha values
     alpha_list = config.get('alpha', [0.05])
+    if not isinstance(alpha_list, (list, tuple)) or not alpha_list:
+        raise ValueError("alpha must be a non-empty list of probability values.")
     for a in alpha_list:
         if not 0 < a < 1:
             raise ValueError(f"Alpha must be between 0 and 1, got: {a}")
 
     # Validate height_control values
     hc_list = config.get('height_control') or []
-    valid_hc = {'fdr', 'bonferroni', 'none', None}
+    valid_hc = {'fdr', 'bonferroni', 'rft', 'none', None}
     for hc in hc_list:
         if hc not in valid_hc:
             raise ValueError(
                 f"Invalid height_control: '{hc}'. "
-                f"Must be 'fdr', 'bonferroni', or 'none'."
+                f"Must be 'fdr', 'bonferroni', 'rft', or 'none'."
             )
+
+    # Use the same element-wise alpha/method pairing as the pipeline.
+    if 'rft' in hc_list:
+        for index, method in enumerate(hc_list):
+            if method == 'rft' and alpha_list[min(index, len(alpha_list) - 1)] > 0.1:
+                raise ValueError("RFT supports alpha <= 0.1; use 0.05 for conventional height FWE.")
+        from trialix.rft import require_pyrft
+        require_pyrft()
 
     # Validate HRF model
     valid_hrf = {

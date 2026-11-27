@@ -21,6 +21,7 @@ from trialix.cli import Colors, parse_derivatives_arg
 from trialix.censoring import prepare_censored_run
 from trialix.config import load_config, merge_config, validate_config
 from trialix.logging_setup import setup_logging
+from trialix.rft import prepare_rft_context, threshold_rft_contrast
 from trialix.model import (
     build_first_level_model,
     compute_contrasts,
@@ -252,6 +253,8 @@ def run_pipeline(args):
     log.info(f"  Time:      {elapsed:.1f}s")
     log.info(f"  Output:    {config['output_dir']}")
     log.info("=" * 72)
+    if n_failed and any(hc == 'rft' for _, hc in threshold_pairs):
+        raise RuntimeError(f"{n_failed} participant/session analyses failed with RFT requested; see logs.")
 
 
 def _process_subject_session(config, raw_layout, preproc_layout, is_raw,
@@ -397,6 +400,12 @@ def _process_subject_session(config, raw_layout, preproc_layout, is_raw,
     else:
         logger.info(f"Using user-defined contrasts: {contrasts}")
 
+    rft_context = None
+    if any(hc == 'rft' for _, hc in threshold_pairs):
+        if not all(isinstance(contrast, str) for contrast in contrasts):
+            raise ValueError("Trialix RFT currently supports named one-dimensional T contrasts only.")
+        rft_context = prepare_rft_context(flm)
+
     # ------------------------------------------------------------------
     # G. Compute contrasts
     # ------------------------------------------------------------------
@@ -407,6 +416,7 @@ def _process_subject_session(config, raw_layout, preproc_layout, is_raw,
     # ------------------------------------------------------------------
     output_dir = config['output_dir']
 
+    report_rft_metadata = None
     for contrast_name, outputs in contrast_results.items():
         logger.info(f"Saving maps for contrast: '{contrast_name}'")
 
@@ -416,22 +426,45 @@ def _process_subject_session(config, raw_layout, preproc_layout, is_raw,
             metadata=analysis_metadata,
         )
 
-        # Apply thresholding and save thresholded maps
+        # Apply thresholding and save thresholded maps. RFT operates on the
+        # native T field; output remains Z-scaled for existing downstream tools.
         z_map = outputs.get('z_score')
+        if z_map is None and rft_context is not None:
+            raise ValueError("RFT requested but contrast has no Z-score output.")
         if z_map is not None:
             for alpha, hc in threshold_pairs:
                 try:
-                    thresholded, threshold_val = threshold_contrast_map(
-                        z_map, alpha=alpha, height_control=hc
-                    )
+                    map_metadata = dict(analysis_metadata)
+                    if hc == 'rft':
+                        thresholded, threshold_val, rft_metadata = threshold_rft_contrast(
+                            outputs, rft_context, alpha,
+                        )
+                        rft_metadata['Contrast'] = contrast_name
+                        map_metadata['RFT'] = rft_metadata
+                        if report_rft_metadata is None:
+                            report_rft_metadata = dict(rft_metadata)
+                            report_rft_metadata.pop('surviving_voxels', None)
+                            report_rft_metadata['AppliedToContrasts'] = list(contrasts)
+                    else:
+                        thresholded, threshold_val = threshold_contrast_map(
+                            z_map, alpha=alpha, height_control=hc,
+                        )
+                    map_metadata['Thresholding'] = {
+                        'Method': hc if hc else 'none',
+                        'Alpha': float(alpha), 'TwoSided': True,
+                        'ZThreshold': float(threshold_val),
+                    }
                     save_thresholded_map(
                         thresholded, output_dir, subject, session, task,
-                        space, contrast_name, alpha, hc, metadata=analysis_metadata,
+                        space, contrast_name, alpha, hc, metadata=map_metadata,
                     )
                 except Exception as e:
+                    if hc == 'rft':
+                        raise RuntimeError(
+                            f"RFT thresholding failed for '{contrast_name}' (alpha={alpha}): {e}"
+                        ) from e
                     logger.warning(
-                        f"Thresholding failed (alpha={alpha}, "
-                        f"hc={hc}): {e}"
+                        f"Thresholding failed (alpha={alpha}, hc={hc}): {e}"
                     )
 
     # ------------------------------------------------------------------
@@ -439,8 +472,20 @@ def _process_subject_session(config, raw_layout, preproc_layout, is_raw,
     # ------------------------------------------------------------------
     try:
         alpha, hc = threshold_pairs[0] if threshold_pairs else (0.001, 'fpr')
-        report = generate_report(flm, contrasts, alpha=alpha, height_control=hc)
-        save_report(report, output_dir, subject, session, task, space)
+        if hc == 'rft':
+            if report_rft_metadata is None:
+                raise ValueError("No successful RFT threshold is available for the report.")
+            report = generate_report(
+                flm, contrasts, alpha=alpha, height_control=None,
+                rft_metadata=report_rft_metadata,
+            )
+            save_report(
+                report, output_dir, subject, session, task, space,
+                metadata={**analysis_metadata, 'RFT': report_rft_metadata},
+            )
+        else:
+            report = generate_report(flm, contrasts, alpha=alpha, height_control=hc)
+            save_report(report, output_dir, subject, session, task, space)
     except Exception as e:
         logger.warning(f"Report generation failed: {e}")
 

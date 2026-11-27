@@ -357,9 +357,9 @@ def create_parser() -> argparse.ArgumentParser:
         metavar="ALPHA",
         nargs='+',
         type=float,
-        default=[0.05],
-        help="Statistical p-value threshold(s). Passed to "
-             "nilearn.glm.threshold_stats_img. Default: 0.05.",
+        default=None,
+        help="Statistical p-value threshold(s); RFT uses height-FWE alpha. "
+             "Default: 0.05 (CLI overrides YAML when supplied).",
     )
 
     stats.add_argument(
@@ -368,7 +368,8 @@ def create_parser() -> argparse.ArgumentParser:
         nargs='+',
         dest="height_control",
         help="Multiple comparison correction method(s): 'fdr', 'bonferroni', "
-             "or 'none'. Paired with --alpha values. Default: none.",
+             "'rft' (pyrft, two-sided height FWE), or 'none'. "
+             "Paired with --alpha values. RFT requires the [rft] extra. Default: none.",
     )
 
     return parser

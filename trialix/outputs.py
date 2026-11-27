@@ -181,7 +181,7 @@ def _write_map_metadata(fpath, metadata, **details):
         json.dump({**metadata, **details}, stream, indent=2, allow_nan=False)
 
 
-def save_report(report, output_dir, subject, session, task, space):
+def save_report(report, output_dir, subject, session, task, space, metadata=None):
     """
     Save the HTML report.
 
@@ -205,6 +205,9 @@ def save_report(report, output_dir, subject, session, task, space):
     fpath = out_dir / fname
 
     report.save_as_html(str(fpath))
+    if metadata is not None:
+        with fpath.with_suffix('.json').open('w') as stream:
+            json.dump(metadata, stream, indent=2, allow_nan=False)
     logger.info(f"  Saved report: {fpath.name}")
     return fpath
 

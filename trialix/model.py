@@ -164,7 +164,8 @@ def threshold_contrast_map(z_map, alpha=0.05, height_control=None):
     return thresholded_map, threshold_value
 
 
-def generate_report(flm, contrasts, alpha=0.001, height_control='fpr'):
+def generate_report(flm, contrasts, alpha=0.001, height_control='fpr',
+                    rft_metadata=None):
     """
     Generate an HTML report for the fitted model.
 
@@ -178,6 +179,9 @@ def generate_report(flm, contrasts, alpha=0.001, height_control='fpr'):
         Significance level for thresholding.
     height_control : str or None
         False-positive control method ('fpr', 'fdr', 'bonferroni', or None).
+    rft_metadata : dict or None
+        Precomputed RFT T/Z cutoff and provenance. When supplied, pass its
+        numerical Z threshold to Nilearn without requesting another correction.
 
     Returns
     -------
@@ -185,12 +189,22 @@ def generate_report(flm, contrasts, alpha=0.001, height_control='fpr'):
         Nilearn HTML report object.
     """
     logger.info("Generating HTML report...")
+    report_options = {}
+    if rft_metadata is not None:
+        # Nilearn does not implement RFT: supply the already computed Z cutoff.
+        height_control = None
+        report_options = {
+            'threshold': rft_metadata['ZThreshold'],
+            'title': f"Trialix: two-sided RFT height FWE alpha={alpha:g} "
+                     f"(pyrft; |Z| >= {rft_metadata['ZThreshold']:.4f})",
+        }
     report = flm.generate_report(
         contrasts=contrasts,
         alpha=alpha,
         height_control=height_control,
         two_sided=True,
         plot_type='glass',
+        **report_options,
     )
     logger.info("Report generation complete.")
     return report

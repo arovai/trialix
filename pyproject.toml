@@ -4,19 +4,25 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "trialix"
-version = "0.1.0"
+version = "0.2.0"
 description = "BIDS-based first-level fMRI analysis tool for trial-based designs"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = {text = "MIT"}
 dependencies = [
     "nilearn>=0.10",
     "pybids>=0.16",
     "nibabel>=4.0",
     "numpy",
+    "scipy>=1.9",
     "pandas",
     "pyyaml",
     "matplotlib",
+]
+
+[project.optional-dependencies]
+rft = [
+    "pyrft[nifti] @ git+https://github.com/arovai/pyrft.git@b63532940f78999850132dcdc1bec9317b98058d",
 ]
 
 [project.scripts]
